@@ -1,53 +1,107 @@
-import { Controller } from '@nestjs/common';
-import { MessagePattern, Payload } from '@nestjs/microservices';
-
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  UseGuards,
+  NotFoundException,
+} from '@nestjs/common';
+import { CurrentUser, JwtAccessGuard } from '@app/core-lib';
 import { ServersService } from './servers.service';
-import { CreateServerDto } from '@app/database';
+import {
+  CreateServerDto,
+  UpdateServerDto,
+  ServerIdParamDto,
+  CreateServerPayloadDto,
+  UpdateServerPayloadDto,
+  DeleteServerPayloadDto,
+} from './dto/servers.dto';
+import { plainToInstance } from 'class-transformer';
+import { validateOrReject } from 'class-validator';
 
-@Controller()
+@UseGuards(JwtAccessGuard)
+@Controller('servers')
 export class ServersController {
   constructor(private readonly serversService: ServersService) {}
 
-  @MessagePattern({ cmd: 'create-server' })
+  @Get(':serverId')
+  async getOne(
+    @Param() params: ServerIdParamDto,
+    @CurrentUser() userId: string,
+  ) {
+    await validateOrReject(params);
+    const server = await this.serversService.getServer(params.serverId, userId);
+    if (!server) throw new NotFoundException('Server not found');
+    return server;
+  }
+
+  @Get()
+  async getAll(@CurrentUser() userId: string) {
+    return this.serversService.getServers(userId);
+  }
+
+  @Post()
   async create(
-    @Payload() data: { userId: string; createServerDto: CreateServerDto },
+    @CurrentUser() userId: string,
+    @Body() createServerDto: CreateServerDto,
   ) {
-    return await this.serversService.create(data.userId, data.createServerDto);
+    await validateOrReject(createServerDto);
+    const payload = plainToInstance(CreateServerPayloadDto, {
+      userId,
+      createServerDto,
+    });
+    await validateOrReject(payload);
+    return this.serversService.create(payload.userId, payload.createServerDto);
   }
 
-  @MessagePattern({ cmd: 'update-server' })
+  @Patch(':serverId')
   async update(
-    @Payload()
-    data: {
-      serverId: string;
-      userId: string;
-      updateServerDto: CreateServerDto;
-    },
+    @Param() params: ServerIdParamDto,
+    @CurrentUser() userId: string,
+    @Body() updateServerDto: UpdateServerDto,
   ) {
-    return await this.serversService.update(
-      data.serverId,
-      data.userId,
-      data.updateServerDto,
+    await validateOrReject(params);
+    await validateOrReject(updateServerDto);
+
+    const payload = plainToInstance(UpdateServerPayloadDto, {
+      userId,
+      serverId: params.serverId,
+      updateServerDto,
+    });
+    await validateOrReject(payload);
+
+    const updated = await this.serversService.update(
+      payload.serverId,
+      payload.userId,
+      payload.updateServerDto,
     );
+    if (!updated) throw new NotFoundException('Server not found');
+    return updated;
   }
 
-  @MessagePattern({ cmd: 'delete-server' })
-  async delete(@Payload() data: { serverId: string; userId: string }) {
-    return await this.serversService.delete(data.serverId, data.userId);
+  @Delete(':serverId')
+  async delete(
+    @Param() params: ServerIdParamDto,
+    @CurrentUser() userId: string,
+  ) {
+    await validateOrReject(params);
+    const payload = plainToInstance(DeleteServerPayloadDto, {
+      userId,
+      serverId: params.serverId,
+    });
+    await validateOrReject(payload);
+    return this.serversService.delete(payload.serverId, payload.userId);
   }
 
-  @MessagePattern({ cmd: 'leave-server' })
-  async leave(@Payload() data: { serverId: string; userId: string }) {
-    return await this.serversService.leave(data.serverId, data.userId);
-  }
-
-  @MessagePattern({ cmd: 'get-server' })
-  async getServer(@Payload() data: { serverId: string; userId: string }) {
-    return await this.serversService.getServer(data.serverId, data.userId);
-  }
-
-  @MessagePattern({ cmd: 'get-servers' })
-  async getServers(@Payload() data: { userId: string }) {
-    return await this.serversService.getServers(data.userId);
+  @Patch(':serverId/leave')
+  async leave(
+    @Param() params: ServerIdParamDto,
+    @CurrentUser() userId: string,
+  ) {
+    await validateOrReject(params);
+    return this.serversService.leave(params.serverId, userId);
   }
 }

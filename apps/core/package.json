@@ -1,0 +1,19 @@
+{
+  "name": "@kairos/core",
+  "version": "0.0.1",
+  "private": true,
+  "dependencies": {
+    "@nestjs/jwt": "^10.2.0",
+    "@nestjs/passport": "^10.0.3",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
+    "passport-jwt": "^4.0.1",
+    "passport-local": "^1.0.0",
+    "argon2": "^0.41.1",
+    "cookie-parser": "^1.4.7"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.8",
+    "@types/passport-local": "^1.0.38"
+  }
+}

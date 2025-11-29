@@ -8,100 +8,55 @@ datasource db {
   url      = env("CHAT_DATABASE_URL")
 }
 
-model User {
-  id       String @id @default(uuid())
-  name     String @unique
-  imageUrl String @db.Text
-
-  members Member[]
-
-  conversationsInitiated Conversation[]        @relation("UserOne")
-  conversationsReceived  Conversation[]        @relation("UserTwo")
-  conversationMessages   ConversationMessage[] @relation("Sender")
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("users")
-}
-
-enum MemberRole {
-  ADMIN
-  MODERATOR
-  GUEST
-}
-
-model Member {
-  id   String     @id @default(uuid())
-  role MemberRole @default(GUEST)
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  messages Message[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([userId])
-  @@map("members")
-}
-
-model Message {
-  id      String @id @default(uuid())
-  content String @db.Text
-
-  fileUrl String? @db.Text
-
-  memberId String
-  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
-
-  channelId String
-
-  deleted Boolean @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([channelId])
-  @@index([memberId])
-  @@map("messages")
+enum ChatType {
+  channel
+  direct
 }
 
 model Conversation {
   id String @id @default(uuid())
 
-  userOneId String
-  userOne   User   @relation("UserOne", fields: [userOneId], references: [id], onDelete: Cascade)
-  userTwoId String
-  userTwo   User   @relation("UserTwo", fields: [userTwoId], references: [id], onDelete: Cascade)
+  type      ChatType
+  channelId String?  @map("channel_id")
 
-  ConversationMessage ConversationMessage[] @relation("MessagesConversation")
+  messages     Message[]
+  participants ConversationParticipant[]
 
-  @@unique([userOneId, userTwoId])
-  @@unique([userTwoId, userOneId])
-  @@index([userOneId])
-  @@index([userTwoId])
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   @@map("conversations")
 }
 
-model ConversationMessage {
-  id      String  @id @default(uuid())
-  content String  @db.Text
-  fileUrl String? @db.Text
+model ConversationParticipant {
+  conversationId String       @map("conversation_id")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
-  conversationId String
-  conversation   Conversation @relation("MessagesConversation", fields: [conversationId], references: [id], onDelete: Cascade)
+  userId     String    @map("user_id")
+  lastReadAt DateTime? @map("last_read_at")
 
-  senderId String
-  sender   User   @relation("Sender", fields: [senderId], references: [id], onDelete: Cascade)
+  @@id([conversationId, userId])
+  @@index([userId])
+  @@map("conversation_participants")
+}
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Message {
+  id String @id @default(uuid())
 
+  content String? @db.Text
+  fileUrl String? @map("file_url") @db.Text
   deleted Boolean @default(false)
 
-  @@index([conversationId])
+  senderId       String       @map("sender_id")
+  conversationId String       @map("conversation_id")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
   @@index([senderId])
-  @@map("conversations_messages")
+  @@index([conversationId])
+  @@index([createdAt])
+  @@map("messages")
 }

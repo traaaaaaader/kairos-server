@@ -1,312 +1,236 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { ClientProxy } from '@nestjs/microservices';
-import { firstValueFrom } from 'rxjs';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 
-import { MemberRole } from '@prisma/db-chat';
 import { PrismaService } from '../prisma/prisma.service';
-import { UsersService } from '../users/users.service';
-import { ChatGateway } from '../chat.gateway';
-
-import { CreateMessageDto } from '@app/database';
+import { ChatType } from '@prisma/db-chat';
 
 @Injectable()
 export class MessagesService {
-  readonly MESSAGES_BATCH = 50;
+  constructor(private prisma: PrismaService) {}
 
-  constructor(
-    private readonly prismaService: PrismaService,
-    @Inject(process.env.RABBIT_MQ_SERVER_CLIENT)
-    private readonly serverClient: ClientProxy,
-    private readonly usersService: UsersService,
-    private readonly chatGateway: ChatGateway,
-  ) {}
-
-  async get(channelId: string, cursor?: string) {
-    try {
-      if (!channelId) {
-        return new BadRequestException('Channel ID missing');
-      }
-
-      let messages = [];
-
-      if (cursor) {
-        messages = await this.prismaService.message.findMany({
-          take: this.MESSAGES_BATCH,
-          skip: 1,
-          cursor: {
-            id: cursor,
-          },
-          where: {
-            channelId,
-          },
-          include: {
-            member: {
-              include: {
-                user: true,
-              },
-            },
-          },
-          orderBy: {
-            createdAt: 'desc',
-          },
-        });
-      } else {
-        messages = await this.prismaService.message.findMany({
-          take: this.MESSAGES_BATCH,
-          where: {
-            channelId,
-          },
-          include: {
-            member: {
-              include: {
-                user: true,
-              },
-            },
-          },
-          orderBy: {
-            createdAt: 'desc',
-          },
-        });
-      }
-
-      let nextCursor = null;
-
-      if (messages.length === this.MESSAGES_BATCH) {
-        nextCursor = messages[this.MESSAGES_BATCH - 1].id;
-      }
-
-      return {
-        items: messages,
-        nextCursor,
-      };
-    } catch (error) {
-      console.log('[MESSAGES_GET]', error);
-    }
-  }
-
-  async createMessage(
-    { content, fileUrl }: CreateMessageDto,
-    channelId: string,
-    serverId: string,
-    userId: string,
-  ) {
-    if (!channelId || !serverId) {
-      throw new BadRequestException('Channel ID and Server ID are required');
-    }
-
-    const server = await firstValueFrom(
-      this.serverClient.send({ cmd: 'get-server' }, { serverId, userId }),
-    );
-
-    if (!server) {
-      throw new BadRequestException('Server not found');
-    }
-
-    const channelExist = await firstValueFrom(
-      this.serverClient.send({ cmd: 'get-channel' }, { serverId, channelId }),
-    );
-
-    if (!channelExist) {
-      throw new BadRequestException('Channel not found');
-    }
-
-    const member = server.members.find((member) => member.userId === userId);
-
-    if (!member) {
-      throw new BadRequestException('Member not found');
-    }
-
-    await this.usersService.create({ id: userId });
-
-    const chatMember = await this.prismaService.member.findFirst({
+  async getOrCreateDirectChat(user1Id: string, user2Id: string) {
+    let conversation = await this.prisma.conversation.findFirst({
       where: {
-        id: member.id,
+        type: ChatType.direct,
+        AND: [
+          { participants: { some: { userId: user1Id } } },
+          { participants: { some: { userId: user2Id } } },
+        ],
+      },
+      include: {
+        participants: true,
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
       },
     });
 
-    if (!chatMember) {
-      await this.prismaService.member.create({
+    if (!conversation) {
+      conversation = await this.prisma.conversation.create({
         data: {
-          id: member.id,
-          role: member.role,
-          userId: userId,
+          type: ChatType.direct,
+          participants: {
+            create: [{ userId: user1Id }, { userId: user2Id }],
+          },
+        },
+        include: {
+          participants: true,
+          messages: true,
         },
       });
     }
 
-    const message = await this.prismaService.message.create({
+    return conversation;
+  }
+
+  async getUserDirectChats(userId: string) {
+    const conversations = await this.prisma.conversation.findMany({
+      where: {
+        type: ChatType.direct,
+        participants: {
+          some: { userId },
+        },
+      },
+      include: {
+        participants: {
+          where: { userId: { not: userId } },
+        },
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+      orderBy: {
+        updatedAt: 'desc',
+      },
+    });
+
+    return conversations;
+  }
+
+  async getOrCreateChannelConversation(channelId: string) {
+    let conversation = await this.prisma.conversation.findFirst({
+      where: {
+        type: ChatType.channel,
+        channelId,
+      },
+    });
+
+    if (!conversation) {
+      conversation = await this.prisma.conversation.create({
+        data: {
+          type: ChatType.channel,
+          channelId,
+        },
+      });
+    }
+
+    return conversation;
+  }
+
+  async sendDirectMessage(
+    senderId: string,
+    recipientId: string,
+    content: string,
+    fileUrl?: string,
+  ) {
+    const conversation = await this.getOrCreateDirectChat(
+      senderId,
+      recipientId,
+    );
+
+    const message = await this.prisma.message.create({
       data: {
         content,
         fileUrl,
-        channelId: channelId as string,
-        memberId: member.id,
+        senderId,
+        conversationId: conversation.id,
       },
       include: {
-        member: {
+        conversation: {
           include: {
-            user: true,
+            participants: true,
           },
         },
       },
     });
 
-    const eventKey = `chat:${channelId}:messages`;
-    this.chatGateway.server.emit(eventKey, message);
+    await this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { updatedAt: new Date() },
+    });
 
     return message;
   }
 
-  async updateMessage(
-    content: string,
-    messageId: string,
+  async sendChannelMessage(
     channelId: string,
-    serverId: string,
-    userId: string,
+    senderId: string,
+    content: string,
+    fileUrl?: string,
   ) {
-    const { isMessageOwner, ...data } = await this.validate(
-      messageId,
-      channelId,
-      serverId,
-      userId,
-    );
+    // TODO: Проверить права через API микросервиса серверов
+    // const hasAccess = await this.checkChannelAccess(channelId, senderId);
 
-    if (!isMessageOwner) {
-      throw new BadRequestException('Not allowed');
-    }
+    const conversation = await this.getOrCreateChannelConversation(channelId);
 
-    const message = await this.prismaService.message.update({
-      where: {
-        id: messageId as string,
-      },
+    const message = await this.prisma.message.create({
       data: {
         content,
-      },
-      include: {
-        member: {
-          include: {
-            user: true,
-          },
-        },
+        fileUrl,
+        senderId,
+        conversationId: conversation.id,
       },
     });
-
-    const eventKey = `chat:${channelId}:messages:update`;
-    this.chatGateway.server.emit(eventKey, message);
 
     return message;
   }
 
-  async deleteMessage(
-    messageId: string,
-    channelId: string,
-    serverId: string,
+  async getMessages(
+    conversationId: string,
     userId: string,
+    limit = 50,
+    cursor?: string,
   ) {
-    await this.validate(messageId, channelId, serverId, userId);
-
-    const message = await this.prismaService.message.update({
-      where: {
-        id: messageId as string,
-      },
-      data: {
-        fileUrl: null,
-        content: 'This message has been deleted',
-        deleted: true,
-      },
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
       include: {
-        member: {
-          include: {
-            user: true,
-          },
-        },
+        participants: true,
       },
     });
 
-    const eventKey = `chat:${channelId}:messages:update`;
-    this.chatGateway.server.emit(eventKey, message);
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found');
+    }
 
-    return message;
-  }
-
-  async validate(
-    messageId: string,
-    channelId: string,
-    serverId: string,
-    userId: string,
-  ) {
-    if (!channelId || !serverId || !messageId) {
-      throw new BadRequestException(
-        'Channel ID, Server ID and Message ID are required',
+    if (conversation.type === ChatType.direct) {
+      const isParticipant = conversation.participants.some(
+        (p) => p.userId === userId,
       );
+      if (!isParticipant) {
+        throw new ForbiddenException('Access denied');
+      }
     }
 
-    const server = await firstValueFrom(
-      this.serverClient.send({ cmd: 'get-server' }, { serverId, userId }),
-    );
-
-    if (!server) {
-      throw new BadRequestException('Server not found');
-    }
-
-    const channelExist = await firstValueFrom(
-      this.serverClient.send({ cmd: 'get-channel' }, { serverId, channelId }),
-    );
-
-    if (!channelExist) {
-      throw new BadRequestException('Channel not found');
-    }
-
-    const member = server.members.find((member) => member.userId === userId);
-
-    await this.usersService.create({ id: userId });
-
-    if (!member) {
-      throw new BadRequestException('Member not found');
-    }
-
-    const chatMember = await this.prismaService.member.findFirst({
+    const messages = await this.prisma.message.findMany({
       where: {
-        id: member.id,
+        conversationId,
+        deleted: false,
       },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      ...(cursor && {
+        cursor: { id: cursor },
+        skip: 1,
+      }),
     });
 
-    if (!chatMember) {
-      await this.prismaService.member.create({
-        data: {
-          id: member.id,
-          role: member.role,
-          userId: member.user,
-        },
-      });
-    }
+    return messages;
+  }
 
-    const message = await this.prismaService.message.findFirst({
-      where: {
-        id: messageId as string,
-        channelId: channelId as string,
-      },
-      include: {
-        member: {
-          include: {
-            user: true,
-          },
-        },
-      },
+  async editMessage(messageId: string, userId: string, content: string) {
+    const message = await this.prisma.message.findUnique({
+      where: { id: messageId },
     });
 
-    if (!message || message.deleted) {
-      throw new BadRequestException('Message not found');
+    if (!message) {
+      throw new NotFoundException('Message not found');
     }
 
-    const isMessageOwner = message.memberId === member.id;
-    const isAdmin = member.role === MemberRole.ADMIN;
-    const isModerator = member.role === MemberRole.MODERATOR;
-    const canModife = isMessageOwner || isAdmin || isModerator;
-
-    if (!canModife) {
-      throw new BadRequestException('Not allowed');
+    if (message.senderId !== userId) {
+      throw new ForbiddenException('You can only edit your own messages');
     }
 
-    return { message, isMessageOwner };
+    return this.prisma.message.update({
+      where: { id: messageId },
+      data: { content, updatedAt: new Date() },
+    });
+  }
+
+  async deleteMessage(messageId: string, userId: string) {
+    const message = await this.prisma.message.findUnique({
+      where: { id: messageId },
+    });
+
+    if (!message) {
+      throw new NotFoundException('Message not found');
+    }
+
+    if (message.senderId !== userId) {
+      throw new ForbiddenException('You can only delete your own messages');
+    }
+
+    return this.prisma.message.update({
+      where: { id: messageId },
+      data: {
+        deleted: true,
+        deletedAt: new Date(),
+        content: '[Deleted]',
+      },
+    });
   }
 }

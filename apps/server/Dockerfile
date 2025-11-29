@@ -1,36 +1,27 @@
 # Stage 1: Builder
 FROM node:18-alpine AS builder
 
-# Устанавливаем системные зависимости для сборки
-RUN apk add --no-cache \
-    curl \
-    python3 \
-    pkgconfig \
-    make \
-    g++ \
-    libc6-compat \
-    bash \
-    libtool \
-    autoconf \
-    automake \
-    py3-pip \
-    linux-headers \
-    cmake \
-    ninja
-
 WORKDIR /app
 
-# Копируем файлы зависимостей и Prisma (минимальный набор)
+# Копируем workspace конфигурацию
 COPY package*.json ./
-COPY prisma/ ./prisma/
+COPY nest-cli.json tsconfig.json ./
 
-# Устанавливаем зависимости и генерируем Prisma Client
-RUN npm ci && npm run prisma:gen
+# Копируем package.json всех зависимостей
+COPY apps/server/package*.json ./apps/server/
+COPY prisma/server/ ./prisma/server/
 
-# Копируем остальной исходный код
-COPY . .
+# Устанавливаем зависимости
+RUN npm ci
 
-# Собираем приложение для сервиса server
+# Генерируем Prisma Client
+RUN npm run prisma:gen:server
+
+# Копируем весь исходный код
+COPY apps/server ./apps/server
+COPY libs ./libs
+
+# Собираем приложение для server
 RUN npm run build server
 
 
@@ -42,21 +33,19 @@ WORKDIR /app
 # Устанавливаем curl для healthcheck
 RUN apk add --no-cache curl
 
-# Копируем package.json и устанавливаем production-зависимости
+# Копируем package.json всех workspace проектов
 COPY package*.json ./
+COPY apps/server/package*.json ./apps/server/
+
+# Устанавливаем production зависимости
 RUN npm ci --omit=dev --ignore-scripts
 
-# Копируем собранные файлы и Prisma схемы
+# Копируем собранные файлы ТОЛЬКО server
 COPY --from=builder /app/dist/apps/server ./dist
-COPY --from=builder /app/prisma/chat/schema.prisma ./prisma/chat/
-COPY --from=builder /app/prisma/user/schema.prisma ./prisma/user/
-COPY --from=builder /app/prisma/server/schema.prisma ./prisma/server/
 
-# Копируем сгенерированные Prisma клиенты и дополнительный модуль (если требуется)
+# Копируем Prisma схемы и сгенерированные клиенты
+COPY --from=builder /app/prisma/server/schema.prisma ./prisma/server/
 COPY --from=builder /app/node_modules/.prisma/client ./node_modules/.prisma/client
-COPY --from=builder /app/node_modules/@prisma/db-chat ./node_modules/@prisma/db-chat
-COPY --from=builder /app/node_modules/@prisma/db-auth ./node_modules/@prisma/db-auth
 COPY --from=builder /app/node_modules/@prisma/db-server ./node_modules/@prisma/db-server
 
-# Запускаем приложение
 CMD ["node", "dist/main.js"]

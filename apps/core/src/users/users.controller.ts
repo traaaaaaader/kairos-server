@@ -1,21 +1,43 @@
-import { Controller } from '@nestjs/common';
-import { MessagePattern, Payload } from '@nestjs/microservices';
+import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { CurrentUser, JwtAccessGuard } from '@app/core-lib';
+import { UsersService } from './users.service';
+import { EditUserPayloadDto } from './dto/users.dto';
 
-import { UsersService } from '@app/core-lib';
-import { EditUserDto } from '@app/database';
+interface UserResponse {
+  id: string;
+  email: string;
+  name: string;
+  imageUrl?: string;
+}
 
-
-@Controller()
+@UseGuards(JwtAccessGuard)
+@Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  @MessagePattern({ cmd: 'get-user' })
-  async get(@Payload() userId: string) {
-    return await this.usersService.findOne({ id: userId });
+  @Get('get')
+  async get(@CurrentUser() userId: string): Promise<UserResponse> {
+    const user = await this.usersService.findOne({ id: userId });
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      imageUrl: user.imageUrl,
+    };
   }
 
-  @MessagePattern({ cmd: 'edit-user' })
-  async editUser(@Payload() payload: { userId: string; body: EditUserDto }) {
-    return await this.usersService.edit(payload.userId, payload.body);
+  @Post('edit')
+  async editUser(
+    @CurrentUser() userId: string,
+    @Body() body: EditUserPayloadDto,
+  ): Promise<UserResponse> {
+    const result = await this.usersService.edit({ userId, ...body });
+
+    return {
+      id: result.id,
+      email: result.email,
+      name: result.name,
+      imageUrl: result.imageUrl,
+    };
   }
 }

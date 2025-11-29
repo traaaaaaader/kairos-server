@@ -1,31 +1,86 @@
-import { Controller } from '@nestjs/common';
-import { MessagePattern, Payload } from '@nestjs/microservices';
-
+import {
+  Controller,
+  Get,
+  Patch,
+  Delete,
+  Param,
+  Query,
+  Body,
+  UseGuards,
+  NotFoundException,
+} from '@nestjs/common';
 import { MembersService } from './members.service';
+import { CurrentUser, JwtAccessGuard } from '@app/core-lib';
+import {
+  ServerIdQueryDto,
+  MemberIdParamDto,
+  UpdateMemberDto,
+  DeleteMemberPayloadDto,
+  UpdateMemberPayloadDto,
+} from './dto/members.dto';
+import { plainToInstance } from 'class-transformer';
+import { validateOrReject } from 'class-validator';
 
-import { UpdateMemberPayload, DeleteMemberPayload } from '@app/database';
-
-@Controller()
+@UseGuards(JwtAccessGuard)
+@Controller('members')
 export class MembersController {
   constructor(private readonly membersService: MembersService) {}
 
-  @MessagePattern({ cmd: 'get-member' })
-  async getOne(@Payload() payload: { serverId: string; userId: string }) {
-    return await this.membersService.getOne(payload.serverId, payload.userId);
+  @Get()
+  async getOne(
+    @Query() query: ServerIdQueryDto,
+    @CurrentUser() userId: string,
+  ) {
+    await validateOrReject(query);
+    return this.membersService.getOne(query.serverId, userId);
   }
 
-  @MessagePattern({ cmd: 'get-members' })
-  async getAll(@Payload() payload: { serverId: string }) {
-    return await this.membersService.getAll(payload.serverId);
+  @Get('all')
+  async getAll(@Query() query: ServerIdQueryDto) {
+    await validateOrReject(query);
+    return this.membersService.getAll(query.serverId);
   }
 
-  @MessagePattern({ cmd: 'delete-member' })
-  async delete(@Payload() payload: DeleteMemberPayload) {
-    return await this.membersService.delete(payload);
+  @Delete(':memberId')
+  async delete(
+    @Query() query: ServerIdQueryDto,
+    @Param() params: MemberIdParamDto,
+    @CurrentUser() userId: string,
+  ) {
+    await validateOrReject(query);
+    await validateOrReject(params);
+
+    const payload = plainToInstance(DeleteMemberPayloadDto, {
+      userId,
+      serverId: query.serverId,
+      memberId: params.memberId,
+    });
+    await validateOrReject(payload);
+
+    return this.membersService.delete(payload);
   }
 
-  @MessagePattern({ cmd: 'update-member' })
-  async update(@Payload() payload: UpdateMemberPayload) {
-    return await this.membersService.update(payload);
+  @Patch(':memberId')
+  async update(
+    @Query() query: ServerIdQueryDto,
+    @Param() params: MemberIdParamDto,
+    @CurrentUser() userId: string,
+    @Body() updateMemberDto: UpdateMemberDto,
+  ) {
+    await validateOrReject(query);
+    await validateOrReject(params);
+    await validateOrReject(updateMemberDto);
+
+    const payload = plainToInstance(UpdateMemberPayloadDto, {
+      userId,
+      serverId: query.serverId,
+      memberId: params.memberId,
+      updateMemberDto,
+    });
+    await validateOrReject(payload);
+
+    const updated = await this.membersService.update(payload);
+    if (!updated) throw new NotFoundException('Member not found');
+    return updated;
   }
 }

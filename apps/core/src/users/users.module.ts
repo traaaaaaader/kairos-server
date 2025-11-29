@@ -3,10 +3,12 @@ import { JwtModule } from '@nestjs/jwt';
 
 import { UsersController } from './users.controller';
 
-import { UsersModule as UsersLibModule } from '@app/core-lib';
+import { UsersService } from './users.service';
 
 @Module({
-	imports: [UsersLibModule, JwtModule.register({})],
-	controllers: [UsersController],
+  imports: [JwtModule.register({})],
+  controllers: [UsersController],
+  providers: [UsersService],
+  exports: [UsersService],
 })
 export class UsersModule {}

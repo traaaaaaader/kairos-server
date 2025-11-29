@@ -21,13 +21,12 @@ export class JwtSocketGuard extends AuthGuard('jwt-socket') {
     const client: Socket = context.switchToWs().getClient<Socket>();
     const token: string | string[] = client.handshake.auth.token;
 
-    //Extract the token from query
     if (token === undefined) {
-      throw new UnauthorizedException("Not unauthorized");
+      throw new UnauthorizedException('Not unauthorized');
     }
 
     const authtoken: string = Array.isArray(token) ? token[0] : token;
-    client.data.token = authtoken; // Set the token on the Socket object
+    client.data.token = authtoken;
 
     return super.canActivate(context);
   }

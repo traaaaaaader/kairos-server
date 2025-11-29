@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { CoreModule } from './core.module';
 import { ConfigService } from '@nestjs/config';
+import * as cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create(CoreModule);
@@ -15,6 +16,12 @@ async function bootstrap() {
       queue: config.getOrThrow<string>('RABBIT_MQ_CORE_QUEUE'),
       queueOptions: { durable: false },
     },
+  });
+
+  app.use(cookieParser());
+  app.enableCors({
+    origin: 'http://localhost:5173',
+    credentials: true,
   });
 
   await app.startAllMicroservices();

@@ -1,36 +1,40 @@
 # Stage 1: Builder
 FROM node:18-alpine AS builder
 
+WORKDIR /app
+
+# Зависимости для mediasoup
 RUN apk add --no-cache \
-    curl \
     python3 \
-    pkgconfig \
+    py3-pip \
     make \
     g++ \
+    gcc \
+    pkgconfig \
     libc6-compat \
     bash \
     libtool \
     autoconf \
     automake \
-    py3-pip \
-    linux-headers \
-    cmake \
-    ninja
+    linux-headers
 
-WORKDIR /app
-
-# Копируем файлы зависимостей и Prisma
+# Копируем workspace конфигурацию
 COPY package*.json ./
-COPY prisma/ ./prisma/
+COPY nest-cli.json tsconfig.json ./
 
-# Устанавливаем зависимости и генерируем Prisma Client
-RUN npm ci && npm run prisma:gen
+# Копируем package.json всех зависимостей
+COPY apps/chat/package*.json ./apps/chat/
+COPY prisma/chat/ ./prisma/chat/
 
-# Сборка mediasoup worker (если требуется)
-RUN npm rebuild mediasoup --build-from-source
+# Устанавливаем зависимости
+RUN npm ci
 
-# Копируем остальной исходный код
-COPY . .
+# Генерируем Prisma Client
+RUN npm run prisma:gen:chat
+
+# Копируем весь исходный код
+COPY apps/chat ./apps/chat
+COPY libs ./libs
 
 # Собираем приложение для chat
 RUN npm run build chat
@@ -41,27 +45,29 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Устанавливаем runtime-зависимости для mediasoup
+# Runtime зависимости для mediasoup
 RUN apk add --no-cache \
+    curl \
     libstdc++ \
     libc6-compat \
     bash
 
-# Копируем файлы зависимостей и устанавливаем production-зависимости
+# Копируем package.json всех workspace проектов
 COPY package*.json ./
+COPY apps/chat/package*.json ./apps/chat/
+
+# Устанавливаем production зависимости
 RUN npm ci --omit=dev --ignore-scripts
 
-# Копируем собранные файлы и Prisma схемы
+# Копируем собранные файлы ТОЛЬКО chat
 COPY --from=builder /app/dist/apps/chat ./dist
-COPY --from=builder /app/prisma/chat/schema.prisma ./prisma/chat/
-COPY --from=builder /app/prisma/user/schema.prisma ./prisma/user/
-COPY --from=builder /app/prisma/server/schema.prisma ./prisma/server/
 
-# Копируем сгенерированные Prisma клиенты и медиасуп worker
+# Копируем Prisma схемы и сгенерированные клиенты
+COPY --from=builder /app/prisma/chat/schema.prisma ./prisma/chat/
 COPY --from=builder /app/node_modules/.prisma/client ./node_modules/.prisma/client
 COPY --from=builder /app/node_modules/@prisma/db-chat ./node_modules/@prisma/db-chat
-COPY --from=builder /app/node_modules/@prisma/db-auth ./node_modules/@prisma/db-auth
-COPY --from=builder /app/node_modules/@prisma/db-server ./node_modules/@prisma/db-server
-COPY --from=builder /app/node_modules/mediasoup/worker ./node_modules/mediasoup/worker
+
+# Копируем mediasoup worker
+COPY --from=builder /app/node_modules/mediasoup ./node_modules/mediasoup
 
 CMD ["node", "dist/main.js"]

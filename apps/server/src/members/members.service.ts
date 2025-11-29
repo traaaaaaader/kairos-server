@@ -3,116 +3,68 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-
 import { PrismaService } from '../prisma/prisma.service';
-
-import { DeleteMemberPayload, UpdateMemberPayload } from '@app/database';
+import {
+  DeleteMemberPayloadDto,
+  UpdateMemberPayloadDto,
+} from './dto/members.dto';
 
 @Injectable()
 export class MembersService {
   constructor(private readonly prismaService: PrismaService) {}
 
   async getOne(serverId: string, userId: string) {
-    return await this.prismaService.member.findFirst({
-      where: {
-        serverId: serverId,
-        userId: userId,
-      },
+    return await this.prismaService.member.findUnique({
+      where: { userId_serverId: { userId, serverId } },
     });
   }
 
   async getAll(serverId: string) {
     return await this.prismaService.member.findMany({
-      where: {
-        serverId: serverId,
-      },
-      include: {
-        user: true,
-      },
+      where: { serverId },
     });
   }
 
-  async delete({ memberId, serverId, userId }: DeleteMemberPayload) {
-    if (!userId) {
-      throw new UnauthorizedException();
-    }
+  async delete(payload: DeleteMemberPayloadDto) {
+    const { memberId, serverId, userId } = payload;
 
-    if (!memberId || !serverId) {
-      throw new BadRequestException();
-    }
+    if (!userId) throw new UnauthorizedException();
+    if (!memberId || !serverId) throw new BadRequestException();
 
     return await this.prismaService.server.update({
-      where: {
-        id: serverId,
-        userId: userId,
-      },
+      where: { id: serverId },
       data: {
         members: {
           deleteMany: {
             id: memberId,
-            userId: {
-              not: userId,
-            },
+            userId: { not: userId },
           },
         },
       },
-      include: {
-        members: {
-          include: {
-            user: true,
-          },
-          orderBy: {
-            role: 'asc',
-          },
-        },
-      },
+      include: { members: { orderBy: { role: 'asc' } } },
     });
   }
 
-  async update({
-    memberId,
-    serverId,
-    userId,
-    updateMemberDto: { role },
-  }: UpdateMemberPayload) {
-    if (!userId) {
-      throw new UnauthorizedException();
-    }
+  async update(payload: UpdateMemberPayloadDto) {
+    const { memberId, serverId, userId, updateMemberDto } = payload;
 
-    if (!memberId || !serverId) {
-      throw new BadRequestException();
-    }
+    if (!userId) throw new UnauthorizedException();
+    if (!memberId || !serverId) throw new BadRequestException();
 
     return await this.prismaService.server.update({
-      where: {
-        id: serverId,
-        userId: userId,
-      },
+      where: { id: serverId },
       data: {
         members: {
           update: {
             where: {
               id: memberId,
-              userId: {
-                not: userId,
-              },
+              userId: { not: userId },
             },
-            data: {
-              role,
-            },
+            data: { role: updateMemberDto.role },
           },
         },
       },
-      include: {
-        members: {
-          include: {
-            user: true,
-          },
-          orderBy: {
-            role: 'asc',
-          },
-        },
-      },
+      include: { members: { orderBy: { role: 'asc' } } },
     });
   }
 }

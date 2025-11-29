@@ -1,6 +1,29 @@
+# Игнорируем node_modules - они будут установлены внутри контейнера
 node_modules
+npm-debug.log
+
+# Игнорируем dist - будет создан при сборке
 dist
-.env
-docker-compose.yml
-*.md
+
+# Игнорируем временные файлы
+*.log
+.env*
+!.env.example
+
+# Игнорируем dev файлы
 .git
+.gitignore
+README.md
+.vscode
+.idea
+
+# Игнорируем тесты
+test
+coverage
+*.spec.ts
+*.test.ts
+
+# Игнорируем Docker файлы
+Dockerfile*
+docker-compose*.yaml
+.dockerignore

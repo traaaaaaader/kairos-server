@@ -1,33 +1,25 @@
 # Stage 1: Builder
 FROM node:18-alpine AS builder
 
-RUN apk add --no-cache \
-    curl \
-    python3 \
-    pkgconfig \
-    make \
-    g++ \
-    libc6-compat \
-    bash \
-    libtool \
-    autoconf \
-    automake \
-    py3-pip \
-    linux-headers \
-    cmake \
-    ninja
-
 WORKDIR /app
 
-# Копируем файлы зависимостей и Prisma
+# Копируем workspace конфигурацию
 COPY package*.json ./
-COPY prisma/ ./prisma/
+COPY nest-cli.json tsconfig.json ./
 
-# Устанавливаем зависимости и генерируем Prisma Client
-RUN npm ci && npm run prisma:gen
+# Копируем package.json всех зависимостей
+COPY apps/core/package*.json ./apps/core/
+COPY prisma/user/ ./prisma/user/
+
+# Устанавливаем зависимости
+RUN npm ci
+
+# Генерируем Prisma Client
+RUN npm run prisma:gen:user
 
 # Копируем весь исходный код
-COPY . .
+COPY apps/core ./apps/core
+COPY libs ./libs
 
 # Собираем приложение для core
 RUN npm run build core
@@ -41,19 +33,19 @@ WORKDIR /app
 # Устанавливаем curl для healthcheck
 RUN apk add --no-cache curl
 
+# Копируем package.json всех workspace проектов
 COPY package*.json ./
+COPY apps/core/package*.json ./apps/core/
+
+# Устанавливаем production зависимости
 RUN npm ci --omit=dev --ignore-scripts
 
-# Копируем собранные файлы и Prisma схемы
+# Копируем собранные файлы ТОЛЬКО core
 COPY --from=builder /app/dist/apps/core ./dist
-COPY --from=builder /app/prisma/chat/schema.prisma ./prisma/chat/
-COPY --from=builder /app/prisma/user/schema.prisma ./prisma/user/
-COPY --from=builder /app/prisma/server/schema.prisma ./prisma/server/
 
-# Копируем сгенерированные Prisma клиенты
+# Копируем Prisma схемы и сгенерированные клиенты
+COPY --from=builder /app/prisma/user/schema.prisma ./prisma/user/
 COPY --from=builder /app/node_modules/.prisma/client ./node_modules/.prisma/client
-COPY --from=builder /app/node_modules/@prisma/db-chat ./node_modules/@prisma/db-chat
 COPY --from=builder /app/node_modules/@prisma/db-auth ./node_modules/@prisma/db-auth
-COPY --from=builder /app/node_modules/@prisma/db-server ./node_modules/@prisma/db-server
 
 CMD ["node", "dist/main.js"]

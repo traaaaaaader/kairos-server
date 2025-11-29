@@ -18,24 +18,10 @@
     "forceConsistentCasingInFileNames": false,
     "noFallthroughCasesInSwitch": false,
     "paths": {
-      "@app/files": [
-        "libs/files/src"
-      ],
-      "@app/files/*": [
-        "libs/files/src/*"
-      ],
-      "@app/core-lib": [
-        "libs/core-lib/src"
-      ],
-      "@app/core-lib/*": [
-        "libs/core-lib/src/*"
-      ],
-      "@app/database": [
-        "libs/database/src"
-      ],
-      "@app/database/*": [
-        "libs/database/src/*"
-      ]
+      "@app/files": ["apps/files/src"],
+      "@app/files/*": ["apps/files/src/*"],
+      "@app/core-lib": ["libs/core-lib/src"],
+      "@app/core-lib/*": ["libs/core-lib/src/*"]
     }
   }
 }

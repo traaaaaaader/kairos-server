@@ -5,16 +5,13 @@ import { PrismaModule } from '../prisma/prisma.module';
 
 import { MessagesController } from './messages.controller';
 import { MessagesService } from './messages.service';
-import { ChatGateway } from '../chat.gateway';
 
-import { UsersModule } from '../users/users.module';
 import { ConfigService } from '@nestjs/config';
 import { ChatModule } from '../chat.module';
 
 @Module({
   imports: [
     PrismaModule,
-    UsersModule,
     forwardRef(() => ChatModule),
     ClientsModule.registerAsync([
       {

@@ -3,15 +3,13 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-
 import { PrismaService } from '../prisma/prisma.service';
 import { MemberRole } from '@prisma/db-server';
-
 import {
-  CreateChannelPayload,
-  DeleteChannelPayload,
-  UpdateChannelPayload,
-} from '@app/database';
+  CreateChannelPayloadDto,
+  UpdateChannelPayloadDto,
+  DeleteChannelPayloadDto,
+} from './dto/channels.dto';
 
 @Injectable()
 export class ChannelsService {
@@ -26,120 +24,82 @@ export class ChannelsService {
     });
   }
 
-  async create({
-    userId,
-    serverId,
-    createChannelDto: { name, type },
-  }: CreateChannelPayload) {
-    if (!userId) {
-      throw new UnauthorizedException();
-    }
+  async create(payload: CreateChannelPayloadDto) {
+    const { userId, serverId, createChannelDto } = payload;
+    if (!userId) throw new UnauthorizedException();
+    if (!serverId) throw new BadRequestException();
 
-    if (!serverId) {
-      throw new BadRequestException();
-    }
+    const { name, type } = createChannelDto;
 
     return await this.prismaService.server.update({
       where: {
         id: serverId,
         members: {
-          some: {
-            role: {
-              in: [MemberRole.ADMIN, MemberRole.MODERATOR],
-            },
-          },
+          some: { role: { in: [MemberRole.ADMIN, MemberRole.MODERATOR] } },
         },
       },
       data: {
         channels: {
-          create: {
-            name,
-            type,
-          },
+          create: { name, type },
         },
       },
     });
   }
 
-  async update({
-    userId,
-    serverId,
-    channelId,
-    updateChannelDto: { name, type },
-  }: UpdateChannelPayload) {
-    if (!userId) {
-      throw new UnauthorizedException();
-    }
+  async update(payload: UpdateChannelPayloadDto) {
+    const { userId, serverId, channelId, updateChannelDto } = payload;
+    if (!userId) throw new UnauthorizedException();
+    if (!serverId || !channelId) throw new BadRequestException();
 
-    if (!serverId || !channelId) {
-      throw new BadRequestException();
-    }
+    const { name, type } = updateChannelDto;
 
     return await this.prismaService.server.update({
       where: {
         id: serverId,
         members: {
           some: {
-            userId: userId,
-            role: {
-              in: [MemberRole.ADMIN, MemberRole.MODERATOR],
-            },
+            userId,
+            role: { in: [MemberRole.ADMIN, MemberRole.MODERATOR] },
           },
         },
       },
       data: {
         channels: {
           update: {
-            where: {
-              id: channelId,
-            },
-            data: {
-              name,
-              type,
-            },
+            where: { id: channelId },
+            data: { name, type },
           },
         },
       },
     });
   }
 
-  async delete({ userId, serverId, channelId }: DeleteChannelPayload) {
-    if (!userId) {
-      throw new UnauthorizedException();
-    }
-
-    if (!serverId || !channelId) {
-      throw new BadRequestException();
-    }
+  async delete(payload: DeleteChannelPayloadDto) {
+    const { userId, serverId, channelId } = payload;
+    if (!userId) throw new UnauthorizedException();
+    if (!serverId || !channelId) throw new BadRequestException();
 
     return await this.prismaService.server.update({
       where: {
         id: serverId,
         members: {
           some: {
-            userId: userId,
-            role: {
-              in: [MemberRole.ADMIN, MemberRole.MODERATOR],
-            },
+            userId,
+            role: { in: [MemberRole.ADMIN, MemberRole.MODERATOR] },
           },
         },
       },
       data: {
         channels: {
-          delete: {
-            id: channelId,
-          },
+          delete: { id: channelId },
         },
       },
     });
   }
 
   async getChannels(serverId: string) {
-    const server = await this.prismaService.channel.findMany({
-      where: {
-        serverId: serverId as string,
-      },
+    return await this.prismaService.channel.findMany({
+      where: { serverId },
     });
-    return server;
   }
 }
